@@ -1,0 +1,9 @@
+{
+  "name": "slow-feeds",
+  "description": "The three transaction feeds answer after 3 s with their documented example (UI: list skeleton while loading).",
+  "routes": [
+    { "method": "GET", "path": "/transactions/public", "status": 200, "delayMs": 3000 },
+    { "method": "GET", "path": "/transactions/contacts", "status": 200, "delayMs": 3000 },
+    { "method": "GET", "path": "/transactions", "status": 200, "delayMs": 3000 }
+  ]
+}

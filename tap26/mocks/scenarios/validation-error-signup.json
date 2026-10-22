@@ -1,0 +1,17 @@
+{
+  "name": "validation-error-signup",
+  "description": "POST /users (sign up) is rejected with a 422 express-validator body.",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/users",
+      "status": 422,
+      "body": {
+        "errors": [
+          { "value": "", "msg": "Invalid value", "param": "username", "location": "body" },
+          { "value": "", "msg": "Invalid value", "param": "password", "location": "body" }
+        ]
+      }
+    }
+  ]
+}

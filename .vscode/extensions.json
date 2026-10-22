@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "anthropic.claude-code",
+    "ms-playwright.playwright",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "42crunch.vscode-openapi",
+    "bierner.markdown-mermaid",
+    "redhat.vscode-yaml"
+  ]
+}

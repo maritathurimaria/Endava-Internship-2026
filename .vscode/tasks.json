@@ -1,0 +1,307 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TAP: Doctor",
+      "detail": "Environment & app health check (node tap26/scripts/doctor.mjs)",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/doctor.mjs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Install all",
+      "detail": "App deps without the Cypress binary \u2192 Playwright deps \u2192 Chromium",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "TAP: Install app deps",
+        "TAP: Install Playwright deps",
+        "TAP: Install Chromium"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Install app deps",
+      "detail": "CYPRESS_INSTALL_BINARY=0 yarn install",
+      "type": "shell",
+      "command": "yarn install",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "CYPRESS_INSTALL_BINARY": "0"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Install Playwright deps",
+      "detail": "npm ci in playwright/",
+      "type": "shell",
+      "command": "npm ci",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Install Chromium",
+      "detail": "npx playwright install chromium",
+      "type": "shell",
+      "command": "npx playwright install chromium",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Start app",
+      "detail": "yarn dev \u2014 UI http://localhost:3000, API http://localhost:3001 (reseeds the DB on start)",
+      "type": "shell",
+      "command": "yarn dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": {
+        "owner": "tap26-app",
+        "pattern": {
+          "regexp": "^TAP26_NEVER_MATCHES$"
+        },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "yarn run v|\\$ cross-env|\\[nodemon\\] starting",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "TAP: Swagger UI",
+      "detail": "Swagger UI on http://localhost:3100 (proxies /api \u2192 :3001)",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/swagger-server.mjs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": {
+        "owner": "tap26-swagger",
+        "pattern": {
+          "regexp": "^TAP26_NEVER_MATCHES$"
+        },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "^TAP26_NEVER_MATCHES$",
+          "endsPattern": "TAP26 Swagger UI"
+        }
+      }
+    },
+    {
+      "label": "TAP: Mock server",
+      "detail": "Spec-driven mock API on http://localhost:3101 (scenarios: x-mock-scenario / ?__scenario=)",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/mock-server.mjs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": {
+        "owner": "tap26-mock",
+        "pattern": {
+          "regexp": "^TAP26_NEVER_MATCHES$"
+        },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "^TAP26_NEVER_MATCHES$",
+          "endsPattern": "TAP26 mock API"
+        }
+      }
+    },
+    {
+      "label": "TAP: Test API",
+      "detail": "Playwright api project (reseeds the DB)",
+      "type": "shell",
+      "command": "npx playwright test --project=api",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Test UI (desktop)",
+      "detail": "Playwright ui-desktop project, 1280\u00d71000 (reseeds the DB)",
+      "type": "shell",
+      "command": "npx playwright test --project=ui-desktop",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Test UI (mobile)",
+      "detail": "Playwright ui-mobile project, 375\u00d7667 (reseeds the DB)",
+      "type": "shell",
+      "command": "npx playwright test --project=ui-mobile",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Test all",
+      "detail": "Every Playwright project (reseeds the DB)",
+      "type": "shell",
+      "command": "npx playwright test",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Playwright report",
+      "detail": "Serve the last HTML report (Ctrl+C / trash icon to stop)",
+      "type": "shell",
+      "command": "npx playwright show-report",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "tap26-report",
+        "pattern": {
+          "regexp": "^TAP26_NEVER_MATCHES$"
+        },
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "^TAP26_NEVER_MATCHES$",
+          "endsPattern": "Serving HTML report at"
+        }
+      }
+    },
+    {
+      "label": "TAP: Scan app",
+      "detail": "Regenerate tap26/knowledge/generated/*",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/scan-app.mjs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Impact analysis",
+      "detail": "Test impact of uncommitted changes; also writes tap26/reports/impact/impact-<timestamp>.md",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/impact.mjs",
+        "--write"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Spec drift",
+      "detail": "OpenAPI paths/methods vs Express routes",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/spec-drift.mjs"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Memory digest",
+      "detail": "Rebuild and print tap26/memory/MEMORY.md",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "tap26/scripts/memory.mjs",
+        "digest"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Reset DB",
+      "detail": "POST http://localhost:3001/testData/seed \u2014 wipes manual data",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "-e",
+        "fetch('http://localhost:3001/testData/seed',{method:'POST'}).then(r=>{console.log('reseed',r.status);process.exitCode=r.ok?0:1}).catch(e=>{console.error('API not reachable on :3001 -',e.message);process.exitCode=1})"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "TAP: Framework check",
+      "type": "process",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/tap26/scripts/check-framework.mjs",
+        "--strict"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "TAP: Test e2e",
+      "detail": "Playwright e2e journeys (tests/e2e; reseeds the DB)",
+      "type": "shell",
+      "command": "npx playwright test --project=e2e",
+      "options": {
+        "cwd": "${workspaceFolder}/playwright"
+      },
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

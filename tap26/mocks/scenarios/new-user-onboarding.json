@@ -1,0 +1,10 @@
+{
+  "name": "new-user-onboarding",
+  "description": "A brand-new user: no bank accounts (REST and GraphQL ListBankAccount), no transactions, no notifications — the UI shows the onboarding dialog.",
+  "routes": [
+    { "method": "GET", "path": "/bankAccounts", "status": 200, "body": { "results": [] } },
+    { "method": "POST", "path": "/graphql", "operationName": "ListBankAccount", "status": 200, "body": { "data": { "listBankAccount": [] } } },
+    { "method": "GET", "path": "/transactions", "status": 200, "body": { "pageData": { "page": 1, "limit": 10, "hasNextPages": false, "totalPages": 0 }, "results": [] } },
+    { "method": "GET", "path": "/notifications", "status": 200, "body": { "results": [] } }
+  ]
+}

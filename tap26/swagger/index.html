@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RWA API · TAP26 Swagger</title>
+    <!--
+      Served by tap26/scripts/swagger-server.mjs (http://localhost:3100).
+      Swagger UI assets come from a pinned CDN version (jsDelivr, falling back to unpkg).
+      The spec is fetched from /openapi.json; its first server is "/api", a same-origin
+      proxy to the API, so the session cookie from POST /login is reused automatically.
+    -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css"
+      onerror="this.onerror=null;this.href='https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css'" />
+    <style>
+      :root {
+        --tap-bg: #0f172a;
+        --tap-fg: #f8fafc;
+        --tap-muted: #cbd5e1;
+        --tap-accent: #38bdf8;
+        --tap-ok: #22c55e;
+        --tap-bad: #ef4444;
+      }
+      body { margin: 0; background: #fff; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      .tap26-banner { background: var(--tap-bg); color: var(--tap-fg); padding: 16px 20px; }
+      .tap26-banner__inner { max-width: 1460px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: flex-start; }
+      .tap26-banner h1 { font-size: 18px; margin: 0 0 4px; }
+      .tap26-banner p, .tap26-banner li { margin: 0; color: var(--tap-muted); font-size: 14px; line-height: 1.5; }
+      .tap26-banner ol { margin: 4px 0 0; padding-left: 20px; }
+      .tap26-banner code { color: var(--tap-fg); background: rgba(255, 255, 255, 0.1); padding: 1px 5px; border-radius: 4px; }
+      .tap26-banner a { color: var(--tap-accent); }
+      .tap26-links { margin-left: auto; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+      .tap26-status::before { content: "●"; margin-right: 6px; color: var(--tap-muted); }
+      .tap26-status[data-ok="true"]::before { color: var(--tap-ok); }
+      .tap26-status[data-ok="false"]::before { color: var(--tap-bad); }
+      .tap26-error { max-width: 900px; margin: 24px auto; padding: 16px; border: 1px solid var(--tap-bad); border-radius: 6px; color: #7f1d1d; }
+      @media (max-width: 720px) { .tap26-links { margin-left: 0; } }
+    </style>
+  </head>
+  <body>
+    <header class="tap26-banner" data-test="tap26-banner">
+      <div class="tap26-banner__inner">
+        <div>
+          <h1>TAP26 · Real World App API</h1>
+          <p>Every request below goes through this server's <code>/api</code> proxy to the real API, so cookies just work:</p>
+          <ol>
+            <li>Run <strong>POST /login</strong> (<em>Auth</em> tag) with a seeded user, e.g. <code>Heath93</code> / <code>s3cret</code>.</li>
+            <li>Then try other endpoints — the session cookie is kept automatically.</li>
+          </ol>
+          <p>Mutations change the real database. Reset it any time with <strong>POST /testData/seed</strong>.</p>
+        </div>
+        <nav class="tap26-links" aria-label="Spec downloads">
+          <a href="/openapi.yaml" download="openapi.yaml">Download openapi.yaml</a>
+          <a href="/openapi.json" target="_blank" rel="noopener">View openapi.json</a>
+          <span class="tap26-status" id="tap26-status" role="status">Checking API…</span>
+        </nav>
+      </div>
+    </header>
+
+    <main id="swagger-ui"></main>
+
+    <script>
+      (function () {
+        var VERSION = "5.17.14";
+        var CDNS = [
+          "https://cdn.jsdelivr.net/npm/swagger-ui-dist@" + VERSION + "/swagger-ui-bundle.js",
+          "https://unpkg.com/swagger-ui-dist@" + VERSION + "/swagger-ui-bundle.js",
+        ];
+
+        function showError(message) {
+          var box = document.createElement("div");
+          box.className = "tap26-error";
+          box.setAttribute("role", "alert");
+          box.textContent = message;
+          document.getElementById("swagger-ui").appendChild(box);
+        }
+
+        function loadScript(urls, onLoad) {
+          if (!urls.length) {
+            showError(
+              "Could not load Swagger UI " + VERSION + " from jsDelivr or unpkg. Check your internet connection " +
+                "(or proxy) — the spec itself is still available at /openapi.json and /openapi.yaml.",
+            );
+            return;
+          }
+          var script = document.createElement("script");
+          script.src = urls[0];
+          script.crossOrigin = "anonymous";
+          script.onload = onLoad;
+          script.onerror = function () {
+            script.remove();
+            loadScript(urls.slice(1), onLoad);
+          };
+          document.head.appendChild(script);
+        }
+
+        function checkHealth() {
+          var el = document.getElementById("tap26-status");
+          fetch("/health", { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (h) {
+              el.dataset.ok = String(Boolean(h.api));
+              el.textContent = h.api ? "API reachable (" + h.target + ")" : "API not reachable — run `yarn dev`";
+            })
+            .catch(function () {
+              el.dataset.ok = "false";
+              el.textContent = "Swagger server not reachable";
+            });
+        }
+
+        loadScript(CDNS, function () {
+          window.ui = SwaggerUIBundle({
+            url: "/openapi.json",
+            dom_id: "#swagger-ui",
+            deepLinking: true,
+            tryItOutEnabled: true,
+            withCredentials: true,
+            persistAuthorization: true,
+            displayRequestDuration: true,
+            filter: true,
+            docExpansion: "list",
+            defaultModelsExpandDepth: 0,
+            showExtensions: true,
+            presets: [SwaggerUIBundle.presets.apis],
+            layout: "BaseLayout",
+          });
+        });
+        checkHealth();
+      })();
+    </script>
+  </body>
+</html>

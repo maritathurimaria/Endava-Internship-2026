@@ -1,0 +1,32 @@
+{
+  "name": "rwa-playwright",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Functional Playwright + TypeScript test framework for the Cypress Real World App",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:ui": "playwright test --project=ui-desktop",
+    "test:ui:mobile": "playwright test --project=ui-mobile",
+    "test:ui:tablet": "playwright test --project=ui-tablet",
+    "test:headed": "playwright test --project=ui-desktop --headed",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" playwright.config.ts",
+    "test:e2e": "playwright test --project=e2e",
+    "test:contract": "playwright test tests/api/contract.api.spec.ts --project=api",
+    "test:a11y": "playwright test tests/ui/a11y.spec.ts --project=ui-desktop"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@faker-js/faker": "^9.9.0",
+    "@playwright/test": "1.56.0",
+    "@types/node": "^22.10.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^16.4.7",
+    "prettier": "^3.3.3",
+    "typescript": "^5.7.2"
+  }
+}

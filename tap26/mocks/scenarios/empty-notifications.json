@@ -1,0 +1,7 @@
+{
+  "name": "empty-notifications",
+  "description": "The logged-in user has no unread notifications (UI: \"No Notifications\" empty state, no badge count).",
+  "routes": [
+    { "method": "GET", "path": "/notifications", "status": 200, "body": { "results": [] } }
+  ]
+}

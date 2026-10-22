@@ -1,0 +1,57 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TAP: Debug API (stop yarn dev's API first)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["tsnode:not-instrumented", "--files", "backend/app.ts"],
+      "cwd": "${workspaceFolder}",
+      "env": { "NODE_ENV": "development" },
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "TAP: Debug Playwright current spec",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/playwright/node_modules/@playwright/test/cli.js",
+      "args": ["test", "${fileBasename}", "--project=ui-desktop", "--headed", "--timeout=0"],
+      "cwd": "${workspaceFolder}/playwright",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "TAP: Debug Playwright current spec (API)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/playwright/node_modules/@playwright/test/cli.js",
+      "args": ["test", "${fileBasename}", "--project=api", "--timeout=0"],
+      "cwd": "${workspaceFolder}/playwright",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "TAP: Chrome (frontend)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
+      "name": "Legacy: Debug CRA Tests (react-scripts — unused since the Vite migration)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/react-scripts",
+      "args": ["test", "--runInBand", "--no-cache", "--env=jsdom"],
+      "cwd": "${workspaceRoot}",
+      "protocol": "inspector",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+  ]
+}

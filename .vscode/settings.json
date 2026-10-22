@@ -1,0 +1,18 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "claudeCode.preferredLocation": "sidebar",
+  "claudeCode.respectGitIgnore": true,
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/schemas/v3.0/schema.json": [
+      "tap26/openapi/openapi.yaml"
+    ]
+  },
+  "search.exclude": {
+    "**/playwright-report": true,
+    "**/test-results": true,
+    "data/database.json": true
+  },
+  "[markdown]": {
+    "editor.wordWrap": "on"
+  }
+}

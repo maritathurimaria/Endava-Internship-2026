@@ -1,0 +1,22 @@
+{
+  "name": "tap26-junior",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TAP26-Junior script aliases (zero dependencies). Run from tap26/ (npm run tap:doctor) or the repo root (npm --prefix tap26 run tap:doctor); pass flags after --, e.g. npm run tap:impact -- --since main",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "tap:doctor": "node scripts/doctor.mjs",
+    "tap:doctor:quick": "node scripts/doctor.mjs --quick",
+    "tap:scan": "node scripts/scan-app.mjs",
+    "tap:impact": "node scripts/impact.mjs",
+    "tap:drift": "node scripts/spec-drift.mjs",
+    "tap:swagger": "node scripts/swagger-server.mjs",
+    "tap:mock": "node scripts/mock-server.mjs",
+    "tap:perf": "node scripts/perf-smoke.mjs",
+    "tap:memory": "node scripts/memory.mjs",
+    "tap:digest": "node scripts/memory.mjs digest"
+  }
+}

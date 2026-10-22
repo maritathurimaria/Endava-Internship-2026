@@ -1,0 +1,8 @@
+{
+  "name": "bank-accounts-empty",
+  "description": "The user has no bank accounts, over REST (GET /bankAccounts) and GraphQL (ListBankAccount).",
+  "routes": [
+    { "method": "GET", "path": "/bankAccounts", "status": 200, "body": { "results": [] } },
+    { "method": "POST", "path": "/graphql", "operationName": "ListBankAccount", "status": 200, "body": { "data": { "listBankAccount": [] } } }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "server-error-transactions",
+  "description": "Every transaction read (personal, public, contacts feeds and single transaction) fails with HTTP 500.",
+  "routes": [
+    { "method": "GET", "path": "/transactions", "status": 500, "body": { "error": "Internal Server Error" } },
+    { "method": "GET", "path": "/transactions/{transactionId}", "status": 500, "body": { "error": "Internal Server Error" } }
+  ]
+}

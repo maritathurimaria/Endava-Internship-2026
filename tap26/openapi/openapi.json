@@ -1,0 +1,3921 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cypress Real World App API",
+    "version": "1.0.0",
+    "description": "REST (and a tiny GraphQL) API behind the **Cypress Real World App** - a\nVenmo-style payment app used to practise test automation.\nThe backend is Express + [lowdb](https://github.com/typicode/lowdb) (a JSON\nfile database, `data/database.json`).\n\n## Getting started (Swagger UI \"Try it out\")\n1. `POST /testData/seed` - reset the database to the known seed data.\n2. `POST /login` with `{\"username\": \"Heath93\", \"password\": \"s3cret\"}`.\n   The response sets the session cookie `connect.sid`; your browser keeps\n   it automatically when you use the same-origin `/api` server.\n3. Call any other endpoint. Most need the cookie (see the lock icons).\n4. When you are done experimenting, `POST /testData/seed` again.\n\nSeeded users (all with password `s3cret`):\n\n| id           | username          | name             |\n|--------------|-------------------|------------------|\n| `uBmeaz5pX`  | `Heath93`         | Ted Parisian     |\n| `GjWovtg2hr` | `Arvilla_Hegmann` | Kristian Bradtke |\n| `_XblMqbuoP` | `Dina20`          | Darrel Ortiz     |\n| `M1ty1gR8B3` | `Reyes.Osinski`   | Ruthie Prosacco  |\n| `WHjJ4qR2R2` | `Judah_Dietrich50`| Lia Rosenbaum    |\n\n## Conventions\n* **Authentication** - a server-side session (express-session + passport\n  local strategy). `POST /login` returns a `connect.sid` cookie; protected\n  routes answer `401 {\"error\": \"Unauthorized\"}` without it.\n* **Ids** are [shortid](https://github.com/dylang/shortid) strings\n  (`[A-Za-z0-9_-]`, at least 6 characters). Path parameters that are\n  validated as shortids return **422** when malformed. Every record also has\n  a `uuid` (v4).\n* **Money** is stored and returned as **integer cents** (`amount`,\n  `balance`). The only exception is the *request body* of\n  `POST /transactions`, where `amount` is in **whole dollars** (the server\n  multiplies it by 100).\n* **Timestamps** are ISO-8601 strings (`createdAt`, `modifiedAt`).\n* **Validation errors** use express-validator's shape:\n  `422 {\"errors\": [{\"msg\", \"param\", \"location\", \"value\"}]}`.\n* **Unhandled errors** (e.g. an id that does not exist where the code\n  assumes it does) produce Express's default **500 HTML** error page with a\n  stack trace - the API has no 404 handling.\n* **Pagination** (transaction lists only) via `page` (default 1) and\n  `limit` (default 10, max 50); responses carry a `pageData` object.\n\n## Things worth knowing (verified behaviour, useful for negative tests)\n* There are almost **no ownership checks**: any logged-in user can read any\n  bank account or transaction, patch any user/transaction/notification, or\n  delete anyone's contacts. Only `GET /users/{userId}` checks the caller.\n* `PATCH` routes copy the **whole request body** into the stored record\n  (mass assignment) - e.g. `balance` can be patched directly.\n* Unknown ids on `PATCH /users/{id}`, `PATCH /notifications/{id}` and\n  `DELETE /contacts/{id}` are **not** no-ops - see each operation.\n* User objects returned by the API include the bcrypt **password hash**.\n",
+    "contact": {
+      "name": "Cypress Real World App (upstream)",
+      "url": "https://github.com/cypress-io/cypress-realworld-app"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/cypress-io/cypress-realworld-app/blob/develop/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api",
+      "description": "Swagger UI proxy (same-origin, cookies work)"
+    },
+    {
+      "url": "http://localhost:3001",
+      "description": "Direct (CORS limits browser use)"
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Log in / out and check the current session (session cookie `connect.sid`)."
+    },
+    {
+      "name": "Users",
+      "description": "Sign up, look up, search and edit users."
+    },
+    {
+      "name": "Transactions",
+      "description": "Payments and payment requests between users. Lists are paginated and\nenriched with sender/receiver names, avatars, likes and comments.\n"
+    },
+    {
+      "name": "Bank Accounts",
+      "description": "The logged-in user's linked bank accounts (soft-deleted, never removed)."
+    },
+    {
+      "name": "Bank Transfers",
+      "description": "Read-only history of deposits/withdrawals between the pay-app balance and bank accounts."
+    },
+    {
+      "name": "Contacts",
+      "description": "A user's friends list (who they have added as a contact)."
+    },
+    {
+      "name": "Likes",
+      "description": "Likes on a transaction."
+    },
+    {
+      "name": "Comments",
+      "description": "Comments on a transaction."
+    },
+    {
+      "name": "Notifications",
+      "description": "Payment / like / comment notifications for the logged-in user."
+    },
+    {
+      "name": "GraphQL",
+      "description": "A small GraphQL endpoint that duplicates the Bank Accounts REST\noperations (the UI uses it for the bank accounts page).\n"
+    },
+    {
+      "name": "Test Data",
+      "description": "Helpers for automated tests: reseed the database and dump raw tables.\nOnly mounted when the backend runs with `NODE_ENV=development` or `test`.\nNo authentication.\n"
+    }
+  ],
+  "paths": {
+    "/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "login",
+        "summary": "Log in and start a session",
+        "description": "Authenticates with the passport **local** strategy (username + password,\ncompared against the stored bcrypt hash).\n\n* **Auth needed:** no.\n* **Side-effects:** creates a server-side session and sets the\n  `connect.sid` cookie (`HttpOnly`, `Path=/`). With `remember: true`\n  the cookie gets an `Expires` 30 days ahead; otherwise it is a\n  browser-session cookie.\n* Accepts JSON or `application/x-www-form-urlencoded`.\n* Failure responses come straight from passport and are **plain text,\n  not JSON** (`Bad Request` / `Unauthorized`), sent without a\n  `Content-Type` header.\n",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "ted": {
+                  "summary": "Seeded user Ted Parisian",
+                  "value": {
+                    "username": "Heath93",
+                    "password": "s3cret"
+                  }
+                },
+                "rememberMe": {
+                  "summary": "30-day cookie",
+                  "value": {
+                    "username": "Heath93",
+                    "password": "s3cret",
+                    "remember": true
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logged in. The body echoes the full user record (including the password hash).",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The session cookie, e.g. `connect.sid=s%3A...; Path=/; HttpOnly`.",
+                "schema": {
+                  "type": "string",
+                  "example": "connect.sid=s%3AkfiyHp1nC2HigjBCZnXaqKlOMP-PM6Lz.%2BSifToHPia1%2BqdcxpoRq%2BA2LCjypOPzAAUiv04lNkVo; Path=/; HttpOnly"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`username` or `password` missing (passport-local \"Missing credentials\").",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown username or wrong password.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "Unauthorized"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "logout",
+        "summary": "Log out and destroy the session",
+        "description": "Clears the `connect.sid` cookie, logs the user out, destroys the session\nand **redirects** to `/`.\n\n* **Auth needed:** no (calling it without a session still returns 302).\n* **Side-effects:** the session is gone; later calls return 401.\n* HTTP clients that follow redirects will end on `GET /` (200, text).\n",
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect to `/`; the cookie is cleared.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "example": "/"
+                }
+              },
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "example": "connect.sid=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+                }
+              }
+            },
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "Found. Redirecting to /"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/checkAuth": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "checkAuth",
+        "summary": "Who am I? (check the session)",
+        "description": "Returns the user attached to the current session.\n\n* **Auth needed:** the session cookie - without it you get 401 (note the\n  different error text from the other protected routes).\n* **Side-effects:** none.\n",
+        "responses": {
+          "200": {
+            "description": "The logged-in user (including the password hash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "User is unauthorized"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "listUsers",
+        "summary": "List all users (except me)",
+        "description": "Every user in the database except the logged-in one. Not paginated.\n\n* **Auth needed:** yes.\n* Each record includes the bcrypt `password` hash.\n",
+        "responses": {
+          "200": {
+            "description": "Users.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "createUser",
+        "summary": "Sign up (create a user)",
+        "description": "Creates a new user. This is what the UI's sign-up form calls.\n\n* **Auth needed:** no.\n* **Side-effects:** a user record is added; the password is stored as a\n  bcrypt hash; `balance` defaults to 0.\n* **Validation:** at least one of `firstName`, `lastName`, `password`,\n  `balance`, `avatar`, `defaultPrivacyLevel` must be present (otherwise\n  422 with a nested `_error`). Format checks: `balance` numeric,\n  `avatar` a URL (http/https/ftp with a TLD), `defaultPrivacyLevel` one\n  of the enum values.\n* `password` is **effectively required** - omitting it crashes bcrypt\n  and returns 500.\n* `username` is **not** checked for uniqueness, and nothing logs you in\n  - call `POST /login` afterwards.\n* Fields you leave out are simply absent from the stored user.\n",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              },
+              "examples": {
+                "signUp": {
+                  "summary": "What the sign-up form sends",
+                  "value": {
+                    "firstName": "Stu",
+                    "lastName": "Dent",
+                    "username": "stu_dent",
+                    "password": "s3cret"
+                  }
+                },
+                "full": {
+                  "summary": "All accepted fields",
+                  "value": {
+                    "firstName": "Stu",
+                    "lastName": "Dent",
+                    "username": "stu_dent",
+                    "password": "s3cret",
+                    "email": "stu.dent@example.com",
+                    "phoneNumber": "555-123-4567",
+                    "balance": 10000,
+                    "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Stu",
+                    "defaultPrivacyLevel": "private"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created. Returns the stored user (with password hash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                },
+                "example": {
+                  "user": {
+                    "id": "HIX2TuozS",
+                    "uuid": "6b9634b8-25ef-4dde-8f1b-de29e8119593",
+                    "firstName": "Stu",
+                    "lastName": "Dent",
+                    "username": "stu_dent",
+                    "password": "$2a$10$GaAJ3hFG8/uMGX/kj1Ccvu/yc6L9zEU0d7rBOvX3whkne4A6Q9Baa",
+                    "balance": 0,
+                    "createdAt": "2026-10-15T21:30:55.231Z",
+                    "modifiedAt": "2026-10-15T21:30:55.231Z"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/users/search": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "searchUsers",
+        "summary": "Fuzzy-search users",
+        "description": "Fuzzy search (Fuse.js) over `firstName`, `lastName`, `username`,\n`email` and `phoneNumber`. Non-alphanumeric characters are stripped from\n`q` first. The logged-in user is excluded from the results.\n\n* **Auth needed:** yes.\n",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "description": "Search text (must be present; may be empty, which matches nothing).",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Kristian"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching users, best match first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "description": "`q` is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "msg": "Invalid value",
+                      "param": "q",
+                      "location": "query"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{userId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/UserIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "getUser",
+        "summary": "Get my own user record",
+        "description": "Returns a user by id - **only your own**. Asking for any other id returns\n401 even when that user exists.\n\n* **Auth needed:** yes, and `userId` must equal the logged-in user's id.\n",
+        "responses": {
+          "200": {
+            "description": "The user (with password hash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in, or `userId` is not the logged-in user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "Unauthorized"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "updateUser",
+        "summary": "Update a user (settings form)",
+        "description": "Merges the request body into the stored user.\n\n* **Auth needed:** yes - but there is **no ownership check**: any\n  logged-in user can patch any user.\n* **Validation:** at least one of `firstName`, `lastName`, `password`,\n  `balance`, `avatar`, `defaultPrivacyLevel` must be present (so a body\n  with only `email`/`phoneNumber` is rejected with 422). Same format\n  checks as sign-up.\n* **Side-effects / gotchas** (all verified):\n  * The whole body is assigned (mass assignment): `balance`,\n    `username`, even `id` can be overwritten.\n  * `password` is stored **in plain text** (not hashed), so the user can\n    no longer log in afterwards.\n  * If `userId` is a well-formed id that does not exist, the **first\n    user in the database** is modified instead.\n  * Reseed (`POST /testData/seed`) after experimenting.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              },
+              "example": {
+                "firstName": "Ted",
+                "lastName": "Parisian",
+                "email": "Santos.Runte65@gmail.com",
+                "phoneNumber": "398-225-9900",
+                "defaultPrivacyLevel": "public"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Updated (no body)."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/users/profile/{username}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "operationId": "getUserProfile",
+        "summary": "Public profile by username",
+        "description": "Returns just `firstName`, `lastName` and `avatar` for a username.\n\n* **Auth needed:** no.\n* An unknown username returns **200 with an empty object** (`{\"user\": {}}`),\n  not 404.\n",
+        "security": [],
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Heath93"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Profile (empty object when the username does not exist).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "user"
+                  ],
+                  "properties": {
+                    "user": {
+                      "$ref": "#/components/schemas/PublicUserProfile"
+                    }
+                  }
+                },
+                "examples": {
+                  "found": {
+                    "value": {
+                      "user": {
+                        "firstName": "Ted",
+                        "lastName": "Parisian",
+                        "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted"
+                      }
+                    }
+                  },
+                  "notFound": {
+                    "value": {
+                      "user": {}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contacts": {
+      "post": {
+        "tags": [
+          "Contacts"
+        ],
+        "operationId": "createContact",
+        "summary": "Add a contact",
+        "description": "Adds `contactUserId` to the logged-in user's contacts.\n\n* **Auth needed:** yes.\n* **Side-effects:** inserts a contact record. The API does **not** check\n  that the other user exists or that the contact is not already there\n  (duplicates are allowed).\n* Returns **200** (not 201).\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContactRequest"
+              },
+              "example": {
+                "contactUserId": "WHjJ4qR2R2"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new contact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "contact"
+                  ],
+                  "properties": {
+                    "contact": {
+                      "$ref": "#/components/schemas/Contact"
+                    }
+                  }
+                },
+                "example": {
+                  "contact": {
+                    "id": "tpAcHA6Xk9",
+                    "uuid": "6eb0512f-3377-47fc-a519-1914068161a0",
+                    "userId": "uBmeaz5pX",
+                    "contactUserId": "WHjJ4qR2R2",
+                    "createdAt": "2026-10-15T21:30:55.458Z",
+                    "modifiedAt": "2026-10-15T21:30:55.458Z"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/contacts/{usernameOrContactId}": {
+      "get": {
+        "tags": [
+          "Contacts"
+        ],
+        "operationId": "listContactsByUsername",
+        "summary": "List a user's contacts (by username)",
+        "description": "Returns the contact records of the user with the given **username**.\n\n* **Auth needed:** no - this route is **public** (no `ensureAuthenticated`).\n* An unknown username returns **500** (HTML error page), not 404.\n",
+        "security": [],
+        "parameters": [
+          {
+            "name": "usernameOrContactId",
+            "in": "path",
+            "required": true,
+            "description": "For this operation, the **username** whose contacts you want.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Heath93"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's contacts (may be empty).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "contacts"
+                  ],
+                  "properties": {
+                    "contacts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Contact"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "contacts": [
+                    {
+                      "id": "efoOTPci1G",
+                      "uuid": "c70233b2-771b-464c-aebb-79fdedeedc4d",
+                      "userId": "uBmeaz5pX",
+                      "contactUserId": "_XblMqbuoP",
+                      "createdAt": "2023-08-12T05:43:05.114Z",
+                      "modifiedAt": "2024-03-07T10:03:03.641Z"
+                    },
+                    {
+                      "id": "rc6g214WL7",
+                      "uuid": "800ef1c0-e353-446f-bdc9-dbc958eb8d94",
+                      "userId": "uBmeaz5pX",
+                      "contactUserId": "M1ty1gR8B3",
+                      "createdAt": "2024-01-16T01:10:34.419Z",
+                      "modifiedAt": "2024-03-07T15:01:39.951Z"
+                    },
+                    {
+                      "id": "ZtmwI9S3dY",
+                      "uuid": "a4da928c-a40d-4892-96c2-64cc29f60a34",
+                      "userId": "uBmeaz5pX",
+                      "contactUserId": "GjWovtg2hr",
+                      "createdAt": "2024-02-21T09:25:04.637Z",
+                      "modifiedAt": "2024-03-07T15:28:30.214Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Contacts"
+        ],
+        "operationId": "deleteContact",
+        "summary": "Remove a contact (by contact id)",
+        "description": "Hard-deletes the contact record with the given **contact id** (the\ncontact's own `id`, not the other user's id).\n\n* **Auth needed:** yes - but no ownership check.\n* The response body is always an **empty object** `{}` (the handler\n  returns `{contacts: undefined}`).\n* **Danger (verified bug):** a well-formed id that does not exist\n  deletes **every contact in the database**. Reseed afterwards.\n",
+        "parameters": [
+          {
+            "name": "usernameOrContactId",
+            "in": "path",
+            "required": true,
+            "description": "For this operation, the **contact id** (a shortid) to delete.",
+            "schema": {
+              "$ref": "#/components/schemas/ShortId"
+            },
+            "example": "efoOTPci1G"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted. Empty JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyObject"
+                },
+                "example": {}
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/bankAccounts": {
+      "get": {
+        "tags": [
+          "Bank Accounts"
+        ],
+        "operationId": "listBankAccounts",
+        "summary": "List my bank accounts",
+        "description": "All bank accounts of the logged-in user, **including soft-deleted ones**\n(`isDeleted: true`) - filter them out yourself.\n\n* **Auth needed:** yes.\n",
+        "responses": {
+          "200": {
+            "description": "Bank accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "results"
+                  ],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BankAccount"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Bank Accounts"
+        ],
+        "operationId": "createBankAccount",
+        "summary": "Add a bank account",
+        "description": "Creates a bank account owned by the logged-in user.\n\n* **Auth needed:** yes.\n* **Validation:** `bankName`, `accountNumber`, `routingNumber` must be\n  strings. The UI enforces lengths (bank name >= 5 chars, routing number\n  9 digits, account number 9-12 digits) but **the API does not**.\n* Returns **200** (not 201).\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBankAccountRequest"
+              },
+              "example": {
+                "bankName": "The Best Bank",
+                "accountNumber": "123456789",
+                "routingNumber": "987654321"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankAccountEnvelope"
+                },
+                "example": {
+                  "account": {
+                    "id": "Kis9UBwqP6",
+                    "uuid": "17acc5bb-b7e8-49c1-be50-f4a9f645fb50",
+                    "userId": "uBmeaz5pX",
+                    "bankName": "The Best Bank",
+                    "accountNumber": "123456789",
+                    "routingNumber": "987654321",
+                    "isDeleted": false,
+                    "createdAt": "2026-10-15T21:30:55.468Z",
+                    "modifiedAt": "2026-10-15T21:30:55.468Z"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "description": "A field is missing or not a string.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "msg": "Invalid value",
+                      "param": "bankName",
+                      "location": "body"
+                    },
+                    {
+                      "msg": "Invalid value",
+                      "param": "accountNumber",
+                      "location": "body"
+                    },
+                    {
+                      "msg": "Invalid value",
+                      "param": "routingNumber",
+                      "location": "body"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bankAccounts/{bankAccountId}": {
+      "parameters": [
+        {
+          "name": "bankAccountId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "example": "pgl34JtnfhX"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Bank Accounts"
+        ],
+        "operationId": "getBankAccount",
+        "summary": "Get a bank account",
+        "description": "* **Auth needed:** yes - but any user's account can be read (no\n  ownership check).\n* An unknown (well-formed) id returns **200 with `{}`**.\n",
+        "responses": {
+          "200": {
+            "description": "The account, or `{}` if not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BankAccountEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Bank Accounts"
+        ],
+        "operationId": "deleteBankAccount",
+        "summary": "Delete (soft) a bank account",
+        "description": "Sets `isDeleted: true` on the account; the record stays in the database\nand in `GET /bankAccounts`.\n\n* **Auth needed:** yes - no ownership check.\n* The response is always `{}`; an unknown id is a silent no-op.\n",
+        "responses": {
+          "200": {
+            "description": "Soft-deleted. Empty JSON object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyObject"
+                },
+                "example": {}
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/bankTransfers": {
+      "get": {
+        "tags": [
+          "Bank Transfers"
+        ],
+        "operationId": "listBankTransfers",
+        "summary": "List my bank transfers",
+        "description": "Deposits/withdrawals of the logged-in user. Read-only: transfers are\ncreated by the seed data, or automatically when a payment is larger than\nthe sender's balance (a `withdrawal` covering the difference).\n\n* **Auth needed:** yes.\n",
+        "responses": {
+          "200": {
+            "description": "Transfers (note the `transfers` key, not `results`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "transfers"
+                  ],
+                  "properties": {
+                    "transfers": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BankTransfer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "listMyTransactions",
+        "summary": "My transactions (\"Mine\" tab)",
+        "description": "Transactions where the logged-in user is the sender **or** receiver,\nnewest `modifiedAt` first, paginated.\n\n* **Auth needed:** yes.\n* **Filters:** `status`, `requestStatus`, `receiverId`, `senderId` are\n  exact-match filters. Range filters only apply when **both** ends are\n  given: `dateRangeStart` + `dateRangeEnd` (on `createdAt`, inclusive)\n  and `amountMin` + `amountMax` (in **cents**, `min <= amount < max`).\n* Gotcha: any *other* query key (e.g. `privacyLevel=public`, or a typo)\n  is also used as an exact-match filter, so an unknown key returns no\n  results. `rangeStartTs`/`rangeEndTs` are validated but not used as\n  ranges - avoid them.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/StatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/RequestStatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReceiverIdFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SenderIdFilter"
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeStart"
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeEnd"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMin"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMax"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedTransactions"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "createTransaction",
+        "summary": "Pay someone or request money",
+        "description": "Creates a **payment** (you send money to `receiverId`) or a **request**\n(you ask `receiverId` to pay you). The logged-in user becomes `senderId`\nin both cases.\n\n* **Auth needed:** yes.\n* `amount` is in **whole dollars** here; it is converted with\n  `parseInt` (fraction dropped: `12.75` -> `1200` cents). The API does\n  not reject zero/negative amounts or check that `receiverId` exists.\n* `privacyLevel` defaults to the sender's `defaultPrivacyLevel`.\n* **Side-effects - payment:** sender's balance is debited (if it is too\n  low, a `withdrawal` bank transfer covers the difference and the\n  balance becomes 0), receiver's balance is credited, `status` becomes\n  `complete`, and the receiver gets a `received` payment notification.\n* **Side-effects - request:** `status` and `requestStatus` are\n  `pending`; the receiver gets a `requested` payment notification.\n* Returns the plain stored transaction (no names/likes/comments) with\n  **200**. `requestStatus` is absent for payments and `source` is absent\n  unless sent.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionRequest"
+              },
+              "examples": {
+                "payment": {
+                  "summary": "Ted pays Kristian $12",
+                  "value": {
+                    "transactionType": "payment",
+                    "receiverId": "GjWovtg2hr",
+                    "description": "Pizza",
+                    "amount": 12,
+                    "privacyLevel": "public"
+                  }
+                },
+                "request": {
+                  "summary": "Ted requests $50 from Kristian",
+                  "value": {
+                    "transactionType": "request",
+                    "receiverId": "GjWovtg2hr",
+                    "description": "Rent",
+                    "amount": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created transaction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "transaction"
+                  ],
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/Transaction"
+                    }
+                  }
+                },
+                "examples": {
+                  "payment": {
+                    "value": {
+                      "transaction": {
+                        "id": "tnPLZUqtXo",
+                        "uuid": "c3f3a589-fa64-4888-b345-ddecdd9a0818",
+                        "amount": 1200,
+                        "description": "Pizza",
+                        "receiverId": "GjWovtg2hr",
+                        "senderId": "uBmeaz5pX",
+                        "privacyLevel": "public",
+                        "status": "complete",
+                        "createdAt": "2026-10-15T21:30:55.479Z",
+                        "modifiedAt": "2026-10-15T21:30:55.479Z"
+                      }
+                    }
+                  },
+                  "request": {
+                    "value": {
+                      "transaction": {
+                        "id": "nnSn2LS01h",
+                        "uuid": "dec9b230-0f90-4ffe-8317-51245b70f19e",
+                        "amount": 5000,
+                        "description": "Rent",
+                        "receiverId": "GjWovtg2hr",
+                        "senderId": "uBmeaz5pX",
+                        "privacyLevel": "public",
+                        "status": "pending",
+                        "requestStatus": "pending",
+                        "createdAt": "2026-10-15T21:30:55.496Z",
+                        "modifiedAt": "2026-10-15T21:30:55.496Z"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "description": "Missing/invalid fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "msg": "Invalid value",
+                      "param": "transactionType",
+                      "location": "body"
+                    },
+                    {
+                      "msg": "Invalid value",
+                      "param": "receiverId",
+                      "location": "body"
+                    },
+                    {
+                      "msg": "Invalid value",
+                      "param": "description",
+                      "location": "body"
+                    },
+                    {
+                      "msg": "Invalid value",
+                      "param": "amount",
+                      "location": "body"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions/contacts": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "listContactsTransactions",
+        "summary": "My contacts' transactions (\"Friends\" tab)",
+        "description": "All transactions (any privacy level) in which any of the logged-in\nuser's contacts is sender or receiver, de-duplicated, paginated.\n\n* **Auth needed:** yes.\n* Same filters and gotchas as `GET /transactions`.\n* Ordering is newest-first **per contact**, then concatenated - the\n  overall list is not globally sorted.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/StatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/RequestStatusFilter"
+          },
+          {
+            "$ref": "#/components/parameters/ReceiverIdFilter"
+          },
+          {
+            "$ref": "#/components/parameters/SenderIdFilter"
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeStart"
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeEnd"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMin"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMax"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedTransactions"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/transactions/public": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "listPublicTransactions",
+        "summary": "Public feed (\"Everyone\" tab)",
+        "description": "Public transactions that do **not** involve the logged-in user's\ncontacts, newest first. **Page 1 only** is prefixed with up to five of\nthe contacts' transactions; later pages contain public, non-contact\ntransactions only (so `totalPages` differs between page 1 and later\npages).\n\n* **Auth needed:** yes.\n* Only the date and amount range filters are applied (both ends of a\n  range are required). `status`/`requestStatus` are not supported here.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Only `default` is accepted (anything else -> 422); it has no visible effect.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "default"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeStart"
+          },
+          {
+            "$ref": "#/components/parameters/DateRangeEnd"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMin"
+          },
+          {
+            "$ref": "#/components/parameters/AmountMax"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/PaginatedTransactions"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/transactions/{transactionId}": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "getTransaction",
+        "summary": "Get one transaction (with names, likes, comments)",
+        "description": "* **Auth needed:** yes - any transaction can be read, regardless of\n  privacy level or participants.\n* An unknown (well-formed) id returns **500** (HTML), not 404.\n",
+        "parameters": [
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ShortId"
+            },
+            "example": "5XZ9RwhG4qW9"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The transaction, enriched like the list items.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "transaction"
+                  ],
+                  "properties": {
+                    "transaction": {
+                      "$ref": "#/components/schemas/TransactionResponseItem"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Transactions"
+        ],
+        "operationId": "updateTransaction",
+        "summary": "Accept or reject a payment request",
+        "description": "Used by the UI's **Accept** / **Reject** buttons on a pending request.\nThe whole body is merged into the transaction.\n\n* **Auth needed:** yes - no check that you are the request's receiver.\n* **Side-effects (verified):** if the transaction is a request (non-empty\n  `requestStatus`), the receiver is **debited**, the sender **credited**,\n  `status` becomes `complete` and the sender gets a `received`\n  notification - this happens for `rejected` too, and again on every\n  repeated PATCH. For a plain payment only the fields are updated.\n* An unknown (well-formed) id returns 500.\n",
+        "parameters": [
+          {
+            "name": "transactionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ShortId"
+            },
+            "example": "C1l4TIlLTsu"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTransactionRequest"
+              },
+              "examples": {
+                "accept": {
+                  "value": {
+                    "requestStatus": "accepted"
+                  }
+                },
+                "reject": {
+                  "value": {
+                    "requestStatus": "rejected"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Updated (no body)."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/likes/{transactionId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TransactionIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Likes"
+        ],
+        "operationId": "listLikes",
+        "summary": "Likes on a transaction",
+        "description": "* **Auth needed:** yes.\n* An unknown transaction id simply returns an empty list.\n",
+        "responses": {
+          "200": {
+            "description": "Likes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "likes"
+                  ],
+                  "properties": {
+                    "likes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Like"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Likes"
+        ],
+        "operationId": "likeTransaction",
+        "summary": "Like a transaction",
+        "description": "Adds a like by the logged-in user. No request body.\n\n* **Auth needed:** yes.\n* **Side-effects:** creates a like and a `like` notification for **both**\n  the sender and the receiver of the transaction (even if you are one of\n  them). Liking twice creates two likes - there is no \"unlike\".\n* Responds with plain text `OK`. Unknown transaction id -> 500.\n",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/OkText"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/comments/{transactionId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TransactionIdPath"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "listComments",
+        "summary": "Comments on a transaction",
+        "description": "* **Auth needed:** yes.\n* An unknown transaction id simply returns an empty list.\n",
+        "responses": {
+          "200": {
+            "description": "Comments, oldest first (insertion order).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "comments"
+                  ],
+                  "properties": {
+                    "comments": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Comment"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "commentOnTransaction",
+        "summary": "Comment on a transaction",
+        "description": "* **Auth needed:** yes.\n* **Side-effects:** creates a comment and a `comment` notification for\n  both the sender and the receiver of the transaction.\n* `content` must be a string (an empty string is accepted).\n* Responds with plain text `OK`. Unknown transaction id -> 500.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommentRequest"
+              },
+              "example": {
+                "content": "Nice one!"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/OkText"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "listNotifications",
+        "summary": "My unread notifications",
+        "description": "Unread (`isRead: false`) notifications of the logged-in user, newest\n`modifiedAt` first, each with a display name `userFullName`:\n\n* like notification -> the person who liked,\n* comment notification -> the person who commented,\n* payment notification on a **request** -> the requester (transaction sender),\n* payment notification on a **payment** -> the notification owner's own name.\n\nThe item shape tells you the kind: `status` = payment, `likeId` = like,\n`commentId` = comment.\n\n* **Auth needed:** yes.\n",
+        "responses": {
+          "200": {
+            "description": "Unread notifications.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "results"
+                  ],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/NotificationResponseItem"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/notifications/bulk": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "createNotifications",
+        "summary": "Create notifications (bulk)",
+        "description": "Creates one notification per item, **all owned by the logged-in user**\n(not by the transaction's participants).\n\n* **Auth needed:** yes.\n* Each item needs `type` and a shortid `transactionId`, plus `status`\n  (type `payment`), `likeId` (type `like`) or `commentId` (type\n  `comment`). An item whose type and extra field do not match produces\n  `null` in `results`.\n* A body without `items` returns 500.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkNotificationsRequest"
+              },
+              "example": {
+                "items": [
+                  {
+                    "type": "payment",
+                    "transactionId": "5XZ9RwhG4qW9",
+                    "status": "received"
+                  },
+                  {
+                    "type": "like",
+                    "transactionId": "5XZ9RwhG4qW9",
+                    "likeId": "x05ZpW5Rm5EP"
+                  },
+                  {
+                    "type": "comment",
+                    "transactionId": "5XZ9RwhG4qW9",
+                    "commentId": "-mJe93t9ALEj"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created notifications, in request order (`null` for unmatched items).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "results"
+                  ],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/Notification"
+                          },
+                          {
+                            "$ref": "#/components/schemas/NullValue"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "results": [
+                    {
+                      "id": "f42E56WMnRA",
+                      "uuid": "32da4050-592b-4da9-ab2c-87fb1a7c4945",
+                      "userId": "uBmeaz5pX",
+                      "transactionId": "5XZ9RwhG4qW9",
+                      "status": "received",
+                      "isRead": false,
+                      "createdAt": "2026-10-15T21:30:55.562Z",
+                      "modifiedAt": "2026-10-15T21:30:55.562Z"
+                    },
+                    {
+                      "id": "5dAf8wOwYM3",
+                      "uuid": "5984a16e-c393-4245-83f7-d73e0399901f",
+                      "userId": "uBmeaz5pX",
+                      "transactionId": "5XZ9RwhG4qW9",
+                      "likeId": "x05ZpW5Rm5EP",
+                      "isRead": false,
+                      "createdAt": "2026-10-15T21:30:55.564Z",
+                      "modifiedAt": "2026-10-15T21:30:55.564Z"
+                    },
+                    {
+                      "id": "81lhmx9l7aA",
+                      "uuid": "8efe10be-50c5-4b02-82e6-6a5a869bcf89",
+                      "userId": "uBmeaz5pX",
+                      "transactionId": "5XZ9RwhG4qW9",
+                      "commentId": "-mJe93t9ALEj",
+                      "isRead": false,
+                      "createdAt": "2026-10-15T21:30:55.567Z",
+                      "modifiedAt": "2026-10-15T21:30:55.567Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "description": "An item has an invalid `type` or `transactionId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "value": "x",
+                      "msg": "Invalid value",
+                      "param": "items[0].transactionId",
+                      "location": "body"
+                    },
+                    {
+                      "value": "bogus",
+                      "msg": "Invalid value",
+                      "param": "items[0].type",
+                      "location": "body"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/notifications/{notificationId}": {
+      "patch": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "updateNotification",
+        "summary": "Mark a notification as read",
+        "description": "The UI's \"Dismiss\" button. The whole body is merged into the\nnotification.\n\n* **Auth needed:** yes - no ownership check.\n* `isRead` must be a boolean.\n* **Gotcha (verified):** a well-formed id that does not exist updates the\n  **first notification in the database** instead.\n",
+        "parameters": [
+          {
+            "name": "notificationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ShortId"
+            },
+            "example": "8NnQy36xaMtB"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationRequest"
+              },
+              "example": {
+                "id": "8NnQy36xaMtB",
+                "isRead": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Updated (no body)."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        }
+      }
+    },
+    "/graphql": {
+      "get": {
+        "tags": [
+          "GraphQL"
+        ],
+        "operationId": "graphqlPlayground",
+        "summary": "GraphQL Playground (HTML)",
+        "description": "Serves the interactive GraphQL Playground page. GET requests never\nexecute queries - even `?query=...` just returns this HTML.\n\n* **Auth needed:** no to load the page; queries sent from it need the\n  session cookie.\n",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Playground HTML page.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "GraphQL"
+        ],
+        "operationId": "graphql",
+        "summary": "Execute a GraphQL operation",
+        "description": "Executes a GraphQL query/mutation ([graphql-http](https://github.com/graphql/graphql-http)).\nOnly `application/json` bodies are accepted (form bodies -> 415).\n\n* **Auth needed:** the transport does not check the cookie, but every\n  resolver uses the logged-in user - without a session you get **200**\n  with an `errors` entry (`Cannot read properties of undefined (reading 'id')`)\n  and `data.<field>: null`.\n* Status codes: **200** for executed operations (including resolver\n  errors) and, with the default `Accept`, for GraphQL validation errors;\n  **400** when `query` is missing, or for validation errors when you\n  send `Accept: application/graphql-response+json`.\n* Note: timestamps of accounts created through GraphQL serialise as\n  epoch-millisecond strings (`\"1792099855581\"`), while seeded ones are\n  ISO strings.\n\n### Schema (SDL, `backend/graphql/schema.graphql`)\n```graphql\ntype Query {\n  listBankAccount: [BankAccount!]\n}\n\ntype Mutation {\n  createBankAccount(bankName: String!, accountNumber: String!, routingNumber: String!): BankAccount\n  deleteBankAccount(id: ID!): Boolean\n}\n\ntype BankAccount {\n  id: ID!\n  uuid: String\n  userId: String\n  bankName: String\n  accountNumber: String\n  routingNumber: String\n  isDeleted: Boolean\n  createdAt: String\n  modifiedAt: String\n}\n```\n`listBankAccount` returns the logged-in user's accounts (including\nsoft-deleted ones), `createBankAccount` = `POST /bankAccounts`,\n`deleteBankAccount` = soft delete, always returns `true`.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphQLRequest"
+              },
+              "examples": {
+                "ListBankAccount": {
+                  "summary": "List my bank accounts",
+                  "value": {
+                    "operationName": "ListBankAccount",
+                    "query": "query ListBankAccount {\n  listBankAccount { id uuid userId bankName accountNumber routingNumber isDeleted createdAt modifiedAt }\n}\n"
+                  }
+                },
+                "CreateBankAccount": {
+                  "summary": "Add a bank account",
+                  "value": {
+                    "operationName": "CreateBankAccount",
+                    "query": "mutation CreateBankAccount($bankName: String!, $accountNumber: String!, $routingNumber: String!) {\n  createBankAccount(bankName: $bankName, accountNumber: $accountNumber, routingNumber: $routingNumber) {\n    id uuid userId bankName accountNumber routingNumber isDeleted createdAt modifiedAt\n  }\n}\n",
+                    "variables": {
+                      "bankName": "GQL Bank",
+                      "accountNumber": "123456789",
+                      "routingNumber": "987654321"
+                    }
+                  }
+                },
+                "DeleteBankAccount": {
+                  "summary": "Soft-delete a bank account",
+                  "value": {
+                    "operationName": "DeleteBankAccount",
+                    "query": "mutation DeleteBankAccount($id: ID!) {\n  deleteBankAccount(id: $id)\n}\n",
+                    "variables": {
+                      "id": "pgl34JtnfhX"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Operation executed (check `errors` as well as `data`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphQLResponse"
+                },
+                "examples": {
+                  "ListBankAccount": {
+                    "value": {
+                      "data": {
+                        "listBankAccount": [
+                          {
+                            "id": "pgl34JtnfhX",
+                            "uuid": "0939b3fe-02da-46f4-a3a6-f06f0fc49f75",
+                            "userId": "uBmeaz5pX",
+                            "bankName": "Waters, King and O'Reilly Bank",
+                            "accountNumber": "7774132232",
+                            "routingNumber": "996645387",
+                            "isDeleted": false,
+                            "createdAt": "2023-03-28T21:55:07.857Z",
+                            "modifiedAt": "2024-03-07T20:50:34.541Z"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "CreateBankAccount": {
+                    "value": {
+                      "data": {
+                        "createBankAccount": {
+                          "id": "96nOTo4gxab",
+                          "uuid": "e07945c8-0609-4fd5-b14e-168d46ada026",
+                          "userId": "uBmeaz5pX",
+                          "bankName": "GQL Bank",
+                          "accountNumber": "123456789",
+                          "routingNumber": "987654321",
+                          "isDeleted": false,
+                          "createdAt": "1792099855581",
+                          "modifiedAt": "1792099855581"
+                        }
+                      }
+                    }
+                  },
+                  "DeleteBankAccount": {
+                    "value": {
+                      "data": {
+                        "deleteBankAccount": true
+                      }
+                    }
+                  },
+                  "notLoggedIn": {
+                    "summary": "No session cookie",
+                    "value": {
+                      "errors": [
+                        {
+                          "message": "TypeError: Cannot read properties of undefined (reading 'id')",
+                          "locations": [
+                            {
+                              "line": 1,
+                              "column": 25
+                            }
+                          ],
+                          "path": [
+                            "listBankAccount"
+                          ]
+                        }
+                      ],
+                      "data": {
+                        "listBankAccount": null
+                      }
+                    }
+                  },
+                  "invalidQuery": {
+                    "summary": "Validation error (default Accept header)",
+                    "value": {
+                      "errors": [
+                        {
+                          "message": "Cannot query field \"nope\" on type \"Query\".",
+                          "locations": [
+                            {
+                              "line": 1,
+                              "column": 9
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing `query`, or a validation error with `Accept application/graphql-response+json`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphQLResponse"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "message": "Missing query"
+                    }
+                  ]
+                }
+              },
+              "application/graphql-response+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphQLResponse"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "message": "Cannot query field \"nope\" on type \"Query\".",
+                      "locations": [
+                        {
+                          "line": 1,
+                          "column": 9
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Body is not JSON (e.g. form-encoded). Empty body."
+          }
+        }
+      }
+    },
+    "/testData/seed": {
+      "post": {
+        "tags": [
+          "Test Data"
+        ],
+        "operationId": "seedDatabase",
+        "summary": "Reset the database to the seed data",
+        "description": "Overwrites `data/database.json` with `data/database-seed.json`. Use it\nbefore/after tests that change data.\n\n* **Auth needed:** no.\n* **Side-effects:** every change since the last seed is lost (users,\n  transactions, ...). Existing sessions keep working because seeded ids\n  do not change.\n",
+        "security": [],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/OkText"
+          }
+        }
+      }
+    },
+    "/testData/{entity}": {
+      "get": {
+        "tags": [
+          "Test Data"
+        ],
+        "operationId": "getTestDataEntity",
+        "summary": "Dump a raw database table",
+        "description": "Returns every row of one lowdb table, unformatted (users include\npassword hashes, notifications include read ones, ...). Handy for test\nsetup and assertions.\n\n* **Auth needed:** no.\n",
+        "security": [],
+        "parameters": [
+          {
+            "name": "entity",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "users",
+                "contacts",
+                "bankaccounts",
+                "notifications",
+                "transactions",
+                "likes",
+                "comments",
+                "banktransfers"
+              ]
+            },
+            "example": "users"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All rows of the table; the item shape depends on `entity`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "results"
+                  ],
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/components/schemas/User"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Contact"
+                          },
+                          {
+                            "$ref": "#/components/schemas/BankAccount"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Notification"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Transaction"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Like"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Comment"
+                          },
+                          {
+                            "$ref": "#/components/schemas/BankTransfer"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "results": [
+                    {
+                      "id": "efoOTPci1G",
+                      "uuid": "c70233b2-771b-464c-aebb-79fdedeedc4d",
+                      "userId": "uBmeaz5pX",
+                      "contactUserId": "_XblMqbuoP",
+                      "createdAt": "2023-08-12T05:43:05.114Z",
+                      "modifiedAt": "2024-03-07T10:03:03.641Z"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unknown entity name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                },
+                "example": {
+                  "errors": [
+                    {
+                      "value": "foo",
+                      "msg": "Invalid value",
+                      "param": "entity",
+                      "location": "params"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "Test Data"
+        ],
+        "operationId": "healthCheck",
+        "summary": "Backend health check",
+        "description": "Returns a fixed text banner - useful to check the backend is up (also\nwhere `POST /logout` redirects to).\n\n* **Auth needed:** no.\n",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Banner text.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                  "example": "Cypress Realworld App - backend"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "connect.sid",
+        "description": "express-session cookie set by `POST /login`. In Swagger UI (via the\n`/api` proxy) the browser stores and sends it automatically after you\nlog in. From other tools, copy the `Set-Cookie` value from the login\nresponse (e.g. `s%3A...`).\n"
+      }
+    },
+    "parameters": {
+      "UserIdPath": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/ShortId"
+        },
+        "example": "uBmeaz5pX"
+      },
+      "TransactionIdPath": {
+        "name": "transactionId",
+        "in": "path",
+        "required": true,
+        "description": "Transaction id. Not checked for existence by the GET; the POST returns 500 for unknown ids.",
+        "schema": {
+          "$ref": "#/components/schemas/ShortId"
+        },
+        "example": "5XZ9RwhG4qW9"
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "description": "1-based page number (values < 1 or non-numeric become 1). Pages past the end return `results: []`.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "example": 1
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": "Page size (express-paginate). Default 10 (`PAGINATION_PAGE_SIZE`),\nvalues above 50 are clamped to 50. `0` or a non-numeric value gives an\nempty page with `totalPages: null`.\n",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 10
+        },
+        "example": 10
+      },
+      "StatusFilter": {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "description": "Only transactions with this status.",
+        "schema": {
+          "$ref": "#/components/schemas/TransactionStatus"
+        }
+      },
+      "RequestStatusFilter": {
+        "name": "requestStatus",
+        "in": "query",
+        "required": false,
+        "description": "Only requests with this request status (payments have an empty `requestStatus`).",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "accepted",
+            "rejected"
+          ]
+        }
+      },
+      "ReceiverIdFilter": {
+        "name": "receiverId",
+        "in": "query",
+        "required": false,
+        "description": "Only transactions received by this user id.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "SenderIdFilter": {
+        "name": "senderId",
+        "in": "query",
+        "required": false,
+        "description": "Only transactions sent by this user id.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "DateRangeStart": {
+        "name": "dateRangeStart",
+        "in": "query",
+        "required": false,
+        "description": "Start of a `createdAt` range (ISO date-time, inclusive). Ignored unless `dateRangeEnd` is also given.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "example": "2023-01-01T00:00:00.000Z"
+      },
+      "DateRangeEnd": {
+        "name": "dateRangeEnd",
+        "in": "query",
+        "required": false,
+        "description": "End of a `createdAt` range (ISO date-time, inclusive). Ignored unless `dateRangeStart` is also given.",
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "example": "2023-12-31T23:59:59.999Z"
+      },
+      "AmountMin": {
+        "name": "amountMin",
+        "in": "query",
+        "required": false,
+        "description": "Minimum amount in **cents** (inclusive). Ignored unless `amountMax` is also given.",
+        "schema": {
+          "type": "number",
+          "minimum": 0
+        },
+        "example": 1000
+      },
+      "AmountMax": {
+        "name": "amountMax",
+        "in": "query",
+        "required": false,
+        "description": "Maximum amount in **cents** (exclusive). Ignored unless `amountMin` is also given.",
+        "schema": {
+          "type": "number",
+          "minimum": 0
+        },
+        "example": 50000
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "No valid session cookie (`ensureAuthenticated`).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "Unauthorized"
+            }
+          }
+        }
+      },
+      "ValidationFailed": {
+        "description": "Request failed express-validator checks.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ValidationError"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Unhandled exception (typically an id/username that does not exist).\nExpress's default error page: HTML with the stack trace.\n",
+        "content": {
+          "text/html": {
+            "schema": {
+              "type": "string",
+              "example": "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Error</title></head><body><pre>TypeError: Cannot read properties of undefined (reading 'id')<br> &nbsp; &nbsp;at ...</pre></body></html>"
+            }
+          }
+        }
+      },
+      "OkText": {
+        "description": "Success, plain-text body `OK` (`res.sendStatus(200)`).",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string",
+              "example": "OK"
+            }
+          }
+        }
+      },
+      "PaginatedTransactions": {
+        "description": "One page of enriched transactions.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/PaginatedTransactionResponseItems"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ShortId": {
+        "type": "string",
+        "description": "A shortid (at least 6 chars from `[A-Za-z0-9_-]`).",
+        "pattern": "^[A-Za-z0-9_-]{6,}$",
+        "example": "uBmeaz5pX"
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "example": "3b63b436-cacc-457a-a3e8-c962ef9838ac"
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "example": "2023-03-09T22:26:40.101Z"
+      },
+      "DefaultPrivacyLevel": {
+        "type": "string",
+        "description": "Who can see a transaction in the feeds.",
+        "enum": [
+          "public",
+          "private",
+          "contacts"
+        ],
+        "example": "public"
+      },
+      "TransactionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "incomplete",
+          "complete"
+        ],
+        "example": "complete"
+      },
+      "NullValue": {
+        "description": "Helper meaning \"the JSON value null\" (OpenAPI 3.0 has no null type;\n`nullable` + `enum: [null]` is the standard workaround).\n",
+        "type": "object",
+        "nullable": true,
+        "enum": [
+          null
+        ],
+        "example": null
+      },
+      "EmptyObject": {
+        "type": "object",
+        "description": "An empty JSON object `{}`.",
+        "maxProperties": 0,
+        "example": {}
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Unauthorized"
+          }
+        },
+        "example": {
+          "error": "Unauthorized"
+        }
+      },
+      "ValidationErrorItem": {
+        "type": "object",
+        "description": "One express-validator (v6) error. `oneOf` checks (user create/update)\nreport a single item with `param: \"_error\"` and the alternatives in\n`nestedErrors`.\n",
+        "required": [
+          "msg",
+          "param"
+        ],
+        "properties": {
+          "value": {
+            "description": "The rejected value (absent when the field was missing).",
+            "example": "abc"
+          },
+          "msg": {
+            "type": "string",
+            "example": "Invalid value"
+          },
+          "param": {
+            "type": "string",
+            "description": "Field name, e.g. `bankName`, `items[0].type`, or `_error` for oneOf groups.",
+            "example": "userId"
+          },
+          "location": {
+            "type": "string",
+            "enum": [
+              "body",
+              "query",
+              "params",
+              "cookies",
+              "headers"
+            ],
+            "example": "params"
+          },
+          "nestedErrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorItem"
+            }
+          }
+        },
+        "example": {
+          "value": "abc",
+          "msg": "Invalid value",
+          "param": "userId",
+          "location": "params"
+        }
+      },
+      "ValidationError": {
+        "type": "object",
+        "required": [
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorItem"
+            }
+          }
+        },
+        "example": {
+          "errors": [
+            {
+              "value": "abc",
+              "msg": "Invalid value",
+              "param": "userId",
+              "location": "params"
+            }
+          ]
+        }
+      },
+      "User": {
+        "type": "object",
+        "description": "A stored user. `password` is the bcrypt hash (the API leaks it).\n`email`, `phoneNumber`, `avatar` and `defaultPrivacyLevel` are absent\nwhen a user was created without them. `firstName`/`lastName`/`username`\nare always present for seeded and UI-created users, but `POST /users`\ndoes not enforce them.\n",
+        "required": [
+          "id",
+          "uuid",
+          "firstName",
+          "lastName",
+          "username",
+          "password",
+          "balance",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "firstName": {
+            "type": "string",
+            "example": "Ted"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Parisian"
+          },
+          "username": {
+            "type": "string",
+            "example": "Heath93"
+          },
+          "password": {
+            "type": "string",
+            "description": "bcrypt hash of the password.",
+            "example": "$2a$10$nSaCsTPTtbbPTnFXBH0GZu0ExpNMud3d1IuKOC/6a9gwAHkdhppeu"
+          },
+          "email": {
+            "type": "string",
+            "example": "Santos.Runte65@gmail.com"
+          },
+          "phoneNumber": {
+            "type": "string",
+            "example": "398-225-9900"
+          },
+          "balance": {
+            "type": "integer",
+            "description": "Pay-app balance in cents.",
+            "example": 150953
+          },
+          "avatar": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted"
+          },
+          "defaultPrivacyLevel": {
+            "$ref": "#/components/schemas/DefaultPrivacyLevel"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "uBmeaz5pX",
+          "uuid": "3b63b436-cacc-457a-a3e8-c962ef9838ac",
+          "firstName": "Ted",
+          "lastName": "Parisian",
+          "username": "Heath93",
+          "password": "$2a$10$nSaCsTPTtbbPTnFXBH0GZu0ExpNMud3d1IuKOC/6a9gwAHkdhppeu",
+          "email": "Santos.Runte65@gmail.com",
+          "phoneNumber": "398-225-9900",
+          "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted",
+          "defaultPrivacyLevel": "public",
+          "balance": 150953,
+          "createdAt": "2023-03-09T22:26:40.101Z",
+          "modifiedAt": "2024-03-07T10:07:57.580Z"
+        }
+      },
+      "UserEnvelope": {
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          }
+        },
+        "example": {
+          "user": {
+            "id": "uBmeaz5pX",
+            "uuid": "3b63b436-cacc-457a-a3e8-c962ef9838ac",
+            "firstName": "Ted",
+            "lastName": "Parisian",
+            "username": "Heath93",
+            "password": "$2a$10$nSaCsTPTtbbPTnFXBH0GZu0ExpNMud3d1IuKOC/6a9gwAHkdhppeu",
+            "email": "Santos.Runte65@gmail.com",
+            "phoneNumber": "398-225-9900",
+            "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted",
+            "defaultPrivacyLevel": "public",
+            "balance": 150953,
+            "createdAt": "2023-03-09T22:26:40.101Z",
+            "modifiedAt": "2024-03-07T10:07:57.580Z"
+          }
+        }
+      },
+      "UserList": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/User"
+            }
+          }
+        },
+        "example": {
+          "results": [
+            {
+              "id": "GjWovtg2hr",
+              "uuid": "1aaad272-626c-4251-a868-306cec137eca",
+              "firstName": "Kristian",
+              "lastName": "Bradtke",
+              "username": "Arvilla_Hegmann",
+              "password": "$2a$10$nSaCsTPTtbbPTnFXBH0GZu0ExpNMud3d1IuKOC/6a9gwAHkdhppeu",
+              "email": "Skyla.Stamm@yahoo.com",
+              "phoneNumber": "410-786-2112",
+              "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Kristian",
+              "defaultPrivacyLevel": "private",
+              "balance": 93026,
+              "createdAt": "2023-04-23T13:52:10.979Z",
+              "modifiedAt": "2024-03-07T09:07:46.709Z"
+            }
+          ]
+        }
+      },
+      "PublicUserProfile": {
+        "type": "object",
+        "description": "Public subset of a user. Empty object when the username is unknown.",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "example": "Ted"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Parisian"
+          },
+          "avatar": {
+            "type": "string",
+            "format": "uri",
+            "example": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted"
+          }
+        },
+        "example": {
+          "firstName": "Ted",
+          "lastName": "Parisian",
+          "avatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted"
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "Heath93"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "s3cret"
+          },
+          "remember": {
+            "type": "boolean",
+            "description": "Keep the session cookie for 30 days.",
+            "default": false,
+            "example": false
+          }
+        },
+        "example": {
+          "username": "Heath93",
+          "password": "s3cret"
+        }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "description": "Sign-up payload. Only `password` is truly required by the server (500\nwithout it); the UI always sends `firstName`, `lastName`, `username`,\n`password`. At least one of `firstName`, `lastName`, `password`,\n`balance`, `avatar`, `defaultPrivacyLevel` must be present.\n",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "example": "Stu"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Dent"
+          },
+          "username": {
+            "type": "string",
+            "example": "stu_dent"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "example": "s3cret"
+          },
+          "email": {
+            "type": "string",
+            "example": "stu.dent@example.com"
+          },
+          "phoneNumber": {
+            "type": "string",
+            "example": "555-123-4567"
+          },
+          "balance": {
+            "type": "number",
+            "description": "Starting balance in cents (numeric; stored as a Number). Defaults to 0.",
+            "example": 10000
+          },
+          "avatar": {
+            "type": "string",
+            "format": "uri",
+            "description": "Must be a URL (http/https/ftp with a top-level domain).",
+            "example": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Stu"
+          },
+          "defaultPrivacyLevel": {
+            "$ref": "#/components/schemas/DefaultPrivacyLevel"
+          }
+        },
+        "example": {
+          "firstName": "Stu",
+          "lastName": "Dent",
+          "username": "stu_dent",
+          "password": "s3cret"
+        }
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "description": "Any user fields; the whole object is merged into the stored user. At\nleast one of `firstName`, `lastName`, `password`, `balance`, `avatar`,\n`defaultPrivacyLevel` must be present. `password` is stored as given\n(NOT hashed).\n",
+        "minProperties": 1,
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "example": "Ted"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Parisian"
+          },
+          "username": {
+            "type": "string",
+            "example": "Heath93"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "email": {
+            "type": "string",
+            "example": "Santos.Runte65@gmail.com"
+          },
+          "phoneNumber": {
+            "type": "string",
+            "example": "398-225-9900"
+          },
+          "balance": {
+            "type": "number",
+            "description": "Balance in cents."
+          },
+          "avatar": {
+            "type": "string",
+            "format": "uri"
+          },
+          "defaultPrivacyLevel": {
+            "$ref": "#/components/schemas/DefaultPrivacyLevel"
+          }
+        },
+        "example": {
+          "firstName": "Ted",
+          "lastName": "Parisian",
+          "email": "Santos.Runte65@gmail.com",
+          "phoneNumber": "398-225-9900",
+          "defaultPrivacyLevel": "public"
+        }
+      },
+      "Contact": {
+        "type": "object",
+        "description": "`userId` has `contactUserId` in their contacts list.",
+        "required": [
+          "id",
+          "uuid",
+          "userId",
+          "contactUserId",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "type": "string",
+            "example": "uBmeaz5pX"
+          },
+          "contactUserId": {
+            "type": "string",
+            "example": "_XblMqbuoP"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "efoOTPci1G",
+          "uuid": "c70233b2-771b-464c-aebb-79fdedeedc4d",
+          "userId": "uBmeaz5pX",
+          "contactUserId": "_XblMqbuoP",
+          "createdAt": "2023-08-12T05:43:05.114Z",
+          "modifiedAt": "2024-03-07T10:03:03.641Z"
+        }
+      },
+      "CreateContactRequest": {
+        "type": "object",
+        "required": [
+          "contactUserId"
+        ],
+        "properties": {
+          "contactUserId": {
+            "$ref": "#/components/schemas/ShortId"
+          }
+        },
+        "example": {
+          "contactUserId": "WHjJ4qR2R2"
+        }
+      },
+      "BankAccount": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "userId",
+          "bankName",
+          "accountNumber",
+          "routingNumber",
+          "isDeleted",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "type": "string",
+            "example": "uBmeaz5pX"
+          },
+          "bankName": {
+            "type": "string",
+            "example": "Waters, King and O'Reilly Bank"
+          },
+          "accountNumber": {
+            "type": "string",
+            "example": "7774132232"
+          },
+          "routingNumber": {
+            "type": "string",
+            "example": "996645387"
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "description": "true after a (soft) delete.",
+            "example": false
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "pgl34JtnfhX",
+          "uuid": "0939b3fe-02da-46f4-a3a6-f06f0fc49f75",
+          "userId": "uBmeaz5pX",
+          "bankName": "Waters, King and O'Reilly Bank",
+          "accountNumber": "7774132232",
+          "routingNumber": "996645387",
+          "isDeleted": false,
+          "createdAt": "2023-03-28T21:55:07.857Z",
+          "modifiedAt": "2024-03-07T20:50:34.541Z"
+        }
+      },
+      "BankAccountEnvelope": {
+        "type": "object",
+        "description": "`account` is absent (body `{}`) when the id does not exist.",
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/BankAccount"
+          }
+        },
+        "example": {
+          "account": {
+            "id": "pgl34JtnfhX",
+            "uuid": "0939b3fe-02da-46f4-a3a6-f06f0fc49f75",
+            "userId": "uBmeaz5pX",
+            "bankName": "Waters, King and O'Reilly Bank",
+            "accountNumber": "7774132232",
+            "routingNumber": "996645387",
+            "isDeleted": false,
+            "createdAt": "2023-03-28T21:55:07.857Z",
+            "modifiedAt": "2024-03-07T20:50:34.541Z"
+          }
+        }
+      },
+      "CreateBankAccountRequest": {
+        "type": "object",
+        "required": [
+          "bankName",
+          "accountNumber",
+          "routingNumber"
+        ],
+        "properties": {
+          "bankName": {
+            "type": "string",
+            "example": "The Best Bank"
+          },
+          "accountNumber": {
+            "type": "string",
+            "description": "Any string (the UI requires 9-12 digits).",
+            "example": "123456789"
+          },
+          "routingNumber": {
+            "type": "string",
+            "description": "Any string (the UI requires 9 digits).",
+            "example": "987654321"
+          }
+        },
+        "example": {
+          "bankName": "The Best Bank",
+          "accountNumber": "123456789",
+          "routingNumber": "987654321"
+        }
+      },
+      "BankTransfer": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "userId",
+          "source",
+          "amount",
+          "type",
+          "transactionId",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "type": "string",
+            "example": "uBmeaz5pX"
+          },
+          "source": {
+            "type": "string",
+            "description": "Bank account id.",
+            "example": "pgl34JtnfhX"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Cents.",
+            "example": 26367
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "withdrawal",
+              "deposit"
+            ],
+            "example": "deposit"
+          },
+          "transactionId": {
+            "type": "string",
+            "example": "BwVAe33Ke0G"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "pKq7_UU4RFEs",
+          "uuid": "35fa399c-68cd-4242-99e1-b4a1439b314f",
+          "userId": "uBmeaz5pX",
+          "source": "pgl34JtnfhX",
+          "amount": 26367,
+          "type": "deposit",
+          "transactionId": "BwVAe33Ke0G",
+          "createdAt": "2023-12-08T21:06:07.408Z",
+          "modifiedAt": "2024-03-07T17:07:56.312Z"
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "description": "A stored transaction. For a **payment** `senderId` paid `receiverId`;\nfor a **request** `senderId` asked `receiverId` for money.\nSeeded payments have `requestStatus: \"\"` and some have\n`requestResolvedAt: \"\"`; payments created through the API have no\n`requestStatus` at all.\n",
+        "required": [
+          "id",
+          "uuid",
+          "amount",
+          "description",
+          "privacyLevel",
+          "receiverId",
+          "senderId",
+          "status",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "source": {
+            "type": "string",
+            "description": "Bank account id the money came from (seed data; optional on create).",
+            "example": "pgl34JtnfhX"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Cents.",
+            "example": 44019
+          },
+          "description": {
+            "type": "string",
+            "example": "Payment: WHjJ4qR2R2 to uBmeaz5pX"
+          },
+          "privacyLevel": {
+            "$ref": "#/components/schemas/DefaultPrivacyLevel"
+          },
+          "receiverId": {
+            "type": "string",
+            "example": "uBmeaz5pX"
+          },
+          "senderId": {
+            "type": "string",
+            "example": "WHjJ4qR2R2"
+          },
+          "balanceAtCompletion": {
+            "type": "integer",
+            "description": "Seed data only.",
+            "example": 29063
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "requestStatus": {
+            "type": "string",
+            "description": "`pending`/`accepted`/`rejected` for requests; empty string for seeded payments.",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected",
+              ""
+            ],
+            "example": ""
+          },
+          "requestResolvedAt": {
+            "type": "string",
+            "description": "ISO date-time, or empty string.",
+            "example": "2023-08-31T22:09:36.407Z"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "T_gY9e9g_Ua",
+          "uuid": "44f95ec8-03df-46d1-b15b-89173df54491",
+          "source": "pgl34JtnfhX",
+          "amount": 44019,
+          "description": "Payment: WHjJ4qR2R2 to uBmeaz5pX",
+          "privacyLevel": "contacts",
+          "receiverId": "uBmeaz5pX",
+          "senderId": "WHjJ4qR2R2",
+          "balanceAtCompletion": 29063,
+          "status": "complete",
+          "requestStatus": "",
+          "requestResolvedAt": "2023-08-31T22:09:36.407Z",
+          "createdAt": "2023-08-29T18:56:16.181Z",
+          "modifiedAt": "2024-03-07T02:07:26.208Z"
+        }
+      },
+      "TransactionResponseItem": {
+        "description": "A transaction enriched with display data, as returned by the GET endpoints.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Transaction"
+          },
+          {
+            "type": "object",
+            "required": [
+              "receiverName",
+              "senderName",
+              "receiverAvatar",
+              "senderAvatar",
+              "likes",
+              "comments"
+            ],
+            "properties": {
+              "receiverName": {
+                "type": "string",
+                "description": "\"firstName lastName\" of the receiver.",
+                "example": "Lia Rosenbaum"
+              },
+              "senderName": {
+                "type": "string",
+                "example": "Ruthie Prosacco"
+              },
+              "receiverAvatar": {
+                "type": "string",
+                "format": "uri",
+                "example": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Lia"
+              },
+              "senderAvatar": {
+                "type": "string",
+                "format": "uri",
+                "example": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ruthie"
+              },
+              "likes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Like"
+                }
+              },
+              "comments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Comment"
+                }
+              }
+            }
+          }
+        ],
+        "example": {
+          "receiverName": "Lia Rosenbaum",
+          "senderName": "Ruthie Prosacco",
+          "receiverAvatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Lia",
+          "senderAvatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ruthie",
+          "likes": [
+            {
+              "id": "x05ZpW5Rm5EP",
+              "uuid": "23ab1c9f-6f17-4eae-adc8-bec5043203a4",
+              "userId": "uBmeaz5pX",
+              "transactionId": "5XZ9RwhG4qW9",
+              "createdAt": "2023-06-01T09:22:16.929Z",
+              "modifiedAt": "2024-03-07T08:26:13.687Z"
+            }
+          ],
+          "comments": [
+            {
+              "id": "-mJe93t9ALEj",
+              "uuid": "53603e81-4cef-4b9b-8192-59b01448a4de",
+              "content": "hic et quasi",
+              "userId": "GjWovtg2hr",
+              "transactionId": "5XZ9RwhG4qW9",
+              "createdAt": "2023-06-07T13:16:30.013Z",
+              "modifiedAt": "2024-03-07T15:39:00.487Z"
+            }
+          ],
+          "id": "5XZ9RwhG4qW9",
+          "uuid": "05681970-3e6b-4d3d-a656-60bbcf85f5ff",
+          "source": "fBzOsXo6JCj",
+          "amount": 29974,
+          "description": "Request: WHjJ4qR2R2 to M1ty1gR8B3",
+          "privacyLevel": "public",
+          "receiverId": "WHjJ4qR2R2",
+          "senderId": "M1ty1gR8B3",
+          "balanceAtCompletion": 1309,
+          "status": "complete",
+          "requestStatus": "accepted",
+          "requestResolvedAt": "2024-09-18T13:44:28.887Z",
+          "createdAt": "2023-10-29T22:24:56.677Z",
+          "modifiedAt": "2024-03-06T22:36:29.461Z"
+        }
+      },
+      "PageData": {
+        "type": "object",
+        "required": [
+          "page",
+          "limit",
+          "hasNextPages",
+          "totalPages"
+        ],
+        "properties": {
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 10
+          },
+          "hasNextPages": {
+            "type": "boolean",
+            "description": "`page < totalPages`.",
+            "example": true
+          },
+          "totalPages": {
+            "type": "integer",
+            "nullable": true,
+            "description": "`ceil(total / limit)`; `null` when `limit` is 0.",
+            "example": 36
+          }
+        },
+        "example": {
+          "page": 1,
+          "limit": 10,
+          "hasNextPages": true,
+          "totalPages": 36
+        }
+      },
+      "PaginatedTransactionResponseItems": {
+        "type": "object",
+        "description": "Paginated<TransactionResponseItem> - the only paginated shape in the API.",
+        "required": [
+          "pageData",
+          "results"
+        ],
+        "properties": {
+          "pageData": {
+            "$ref": "#/components/schemas/PageData"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponseItem"
+            }
+          }
+        },
+        "example": {
+          "pageData": {
+            "page": 1,
+            "limit": 1,
+            "hasNextPages": true,
+            "totalPages": 360
+          },
+          "results": [
+            {
+              "receiverName": "Lia Rosenbaum",
+              "senderName": "Ted Parisian",
+              "receiverAvatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Lia",
+              "senderAvatar": "https://api.dicebear.com/9.x/pixel-art/svg?seed=Ted",
+              "likes": [
+                {
+                  "id": "trxjt3_kUZLD",
+                  "uuid": "7deebbdc-e5cd-4ca5-9746-5826ef744f15",
+                  "userId": "M1ty1gR8B3",
+                  "transactionId": "J5Fd3dlBEBu",
+                  "createdAt": "2023-08-19T10:12:08.946Z",
+                  "modifiedAt": "2024-03-07T05:38:00.043Z"
+                }
+              ],
+              "comments": [],
+              "id": "J5Fd3dlBEBu",
+              "uuid": "5f341a7f-cc3d-4124-8cb3-6389356779f6",
+              "source": "pgl34JtnfhX",
+              "amount": 4236,
+              "description": "Request: WHjJ4qR2R2 to uBmeaz5pX",
+              "privacyLevel": "public",
+              "receiverId": "WHjJ4qR2R2",
+              "senderId": "uBmeaz5pX",
+              "balanceAtCompletion": 5731,
+              "status": "complete",
+              "requestStatus": "rejected",
+              "requestResolvedAt": "2023-11-08T19:25:27.788Z",
+              "createdAt": "2023-05-23T15:59:12.051Z",
+              "modifiedAt": "2024-03-07T22:24:02.561Z"
+            }
+          ]
+        }
+      },
+      "CreateTransactionRequest": {
+        "type": "object",
+        "required": [
+          "transactionType",
+          "receiverId",
+          "description",
+          "amount"
+        ],
+        "properties": {
+          "transactionType": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "request"
+            ],
+            "example": "payment"
+          },
+          "receiverId": {
+            "type": "string",
+            "description": "The other user's id (not checked for existence).",
+            "example": "GjWovtg2hr"
+          },
+          "description": {
+            "type": "string",
+            "example": "Pizza"
+          },
+          "amount": {
+            "type": "number",
+            "description": "**Whole dollars** (numeric strings like `\"12\"` are accepted too).\nParsed with parseInt, so the fraction is dropped; stored x100 as cents.\n",
+            "example": 12
+          },
+          "privacyLevel": {
+            "$ref": "#/components/schemas/DefaultPrivacyLevel"
+          },
+          "source": {
+            "type": "string",
+            "description": "Optional bank account id.",
+            "example": "pgl34JtnfhX"
+          }
+        },
+        "example": {
+          "transactionType": "payment",
+          "receiverId": "GjWovtg2hr",
+          "description": "Pizza",
+          "amount": 12,
+          "privacyLevel": "public"
+        }
+      },
+      "UpdateTransactionRequest": {
+        "type": "object",
+        "required": [
+          "requestStatus"
+        ],
+        "description": "Any other fields sent are also merged into the transaction.",
+        "properties": {
+          "requestStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "example": "accepted"
+          }
+        },
+        "example": {
+          "requestStatus": "accepted"
+        }
+      },
+      "Like": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "userId",
+          "transactionId",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Who liked.",
+            "example": "uBmeaz5pX"
+          },
+          "transactionId": {
+            "type": "string",
+            "example": "5XZ9RwhG4qW9"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "x05ZpW5Rm5EP",
+          "uuid": "23ab1c9f-6f17-4eae-adc8-bec5043203a4",
+          "userId": "uBmeaz5pX",
+          "transactionId": "5XZ9RwhG4qW9",
+          "createdAt": "2023-06-01T09:22:16.929Z",
+          "modifiedAt": "2024-03-07T08:26:13.687Z"
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "content",
+          "userId",
+          "transactionId",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "content": {
+            "type": "string",
+            "example": "hic et quasi"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Who commented.",
+            "example": "GjWovtg2hr"
+          },
+          "transactionId": {
+            "type": "string",
+            "example": "5XZ9RwhG4qW9"
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "-mJe93t9ALEj",
+          "uuid": "53603e81-4cef-4b9b-8192-59b01448a4de",
+          "content": "hic et quasi",
+          "userId": "GjWovtg2hr",
+          "transactionId": "5XZ9RwhG4qW9",
+          "createdAt": "2023-06-07T13:16:30.013Z",
+          "modifiedAt": "2024-03-07T15:39:00.487Z"
+        }
+      },
+      "CreateCommentRequest": {
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "example": "Nice one!"
+          }
+        },
+        "example": {
+          "content": "Nice one!"
+        }
+      },
+      "NotificationBase": {
+        "type": "object",
+        "required": [
+          "id",
+          "uuid",
+          "userId",
+          "transactionId",
+          "isRead",
+          "createdAt",
+          "modifiedAt"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "uuid": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Owner (recipient) of the notification.",
+            "example": "uBmeaz5pX"
+          },
+          "transactionId": {
+            "type": "string",
+            "example": "5XZ9RwhG4qW9"
+          },
+          "isRead": {
+            "type": "boolean",
+            "example": false
+          },
+          "createdAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "modifiedAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "example": {
+          "id": "YcLyZdwuGZAe",
+          "uuid": "c1723c97-1f1d-4313-993f-e128ba8dfab1",
+          "userId": "uBmeaz5pX",
+          "transactionId": "5XZ9RwhG4qW9",
+          "isRead": false,
+          "createdAt": "2023-08-11T23:52:20.091Z",
+          "modifiedAt": "2024-03-07T17:46:49.361Z"
+        }
+      },
+      "PaymentNotification": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "requested",
+                  "received",
+                  "incomplete"
+                ],
+                "example": "requested"
+              }
+            }
+          }
+        ],
+        "example": {
+          "id": "YcLyZdwuGZAe",
+          "uuid": "c1723c97-1f1d-4313-993f-e128ba8dfab1",
+          "userId": "uBmeaz5pX",
+          "transactionId": "5XZ9RwhG4qW9",
+          "status": "requested",
+          "isRead": false,
+          "createdAt": "2023-08-11T23:52:20.091Z",
+          "modifiedAt": "2024-03-07T17:46:49.361Z"
+        }
+      },
+      "LikeNotification": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "likeId"
+            ],
+            "properties": {
+              "likeId": {
+                "type": "string",
+                "example": "uMrgeJ4MvkFl"
+              }
+            }
+          }
+        ],
+        "example": {
+          "id": "8NnQy36xaMtB",
+          "uuid": "f65dc9a6-de3b-4454-8fa7-b43f9270291c",
+          "userId": "uBmeaz5pX",
+          "likeId": "uMrgeJ4MvkFl",
+          "transactionId": "tHql3-JH3OSd",
+          "isRead": false,
+          "createdAt": "2023-10-18T08:33:08.846Z",
+          "modifiedAt": "2024-03-07T19:37:59.120Z"
+        }
+      },
+      "CommentNotification": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "commentId"
+            ],
+            "properties": {
+              "commentId": {
+                "type": "string",
+                "example": "-mJe93t9ALEj"
+              }
+            }
+          }
+        ],
+        "example": {
+          "id": "mq-7Xnl-74JR",
+          "uuid": "be23b125-13c2-4d91-a926-3c4c861bed15",
+          "userId": "uBmeaz5pX",
+          "commentId": "-mJe93t9ALEj",
+          "transactionId": "5XZ9RwhG4qW9",
+          "isRead": false,
+          "createdAt": "2023-07-30T02:16:28.787Z",
+          "modifiedAt": "2024-03-07T08:29:47.224Z"
+        }
+      },
+      "Notification": {
+        "description": "A stored notification - payment (`status`), like (`likeId`) or comment (`commentId`).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PaymentNotification"
+          },
+          {
+            "$ref": "#/components/schemas/LikeNotification"
+          },
+          {
+            "$ref": "#/components/schemas/CommentNotification"
+          }
+        ],
+        "example": {
+          "id": "8NnQy36xaMtB",
+          "uuid": "f65dc9a6-de3b-4454-8fa7-b43f9270291c",
+          "userId": "uBmeaz5pX",
+          "likeId": "uMrgeJ4MvkFl",
+          "transactionId": "tHql3-JH3OSd",
+          "isRead": false,
+          "createdAt": "2023-10-18T08:33:08.846Z",
+          "modifiedAt": "2024-03-07T19:37:59.120Z"
+        }
+      },
+      "NotificationUserFullName": {
+        "type": "object",
+        "required": [
+          "userFullName"
+        ],
+        "properties": {
+          "userFullName": {
+            "type": "string",
+            "description": "Display name for the notification text (see `GET /notifications`).",
+            "example": "Kristian Bradtke"
+          }
+        },
+        "example": {
+          "userFullName": "Kristian Bradtke"
+        }
+      },
+      "PaymentNotificationResponseItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PaymentNotification"
+          },
+          {
+            "$ref": "#/components/schemas/NotificationUserFullName"
+          }
+        ],
+        "example": {
+          "userFullName": "Ruthie Prosacco",
+          "id": "YcLyZdwuGZAe",
+          "uuid": "c1723c97-1f1d-4313-993f-e128ba8dfab1",
+          "userId": "uBmeaz5pX",
+          "transactionId": "5XZ9RwhG4qW9",
+          "status": "requested",
+          "isRead": false,
+          "createdAt": "2023-08-11T23:52:20.091Z",
+          "modifiedAt": "2024-03-07T17:46:49.361Z"
+        }
+      },
+      "LikeNotificationResponseItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/LikeNotification"
+          },
+          {
+            "$ref": "#/components/schemas/NotificationUserFullName"
+          }
+        ],
+        "example": {
+          "userFullName": "Kristian Bradtke",
+          "id": "8NnQy36xaMtB",
+          "uuid": "f65dc9a6-de3b-4454-8fa7-b43f9270291c",
+          "userId": "uBmeaz5pX",
+          "likeId": "uMrgeJ4MvkFl",
+          "transactionId": "tHql3-JH3OSd",
+          "isRead": false,
+          "createdAt": "2023-10-18T08:33:08.846Z",
+          "modifiedAt": "2024-03-07T19:37:59.120Z"
+        }
+      },
+      "CommentNotificationResponseItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CommentNotification"
+          },
+          {
+            "$ref": "#/components/schemas/NotificationUserFullName"
+          }
+        ],
+        "example": {
+          "userFullName": "Kristian Bradtke",
+          "id": "mq-7Xnl-74JR",
+          "uuid": "be23b125-13c2-4d91-a926-3c4c861bed15",
+          "userId": "uBmeaz5pX",
+          "commentId": "-mJe93t9ALEj",
+          "transactionId": "5XZ9RwhG4qW9",
+          "isRead": false,
+          "createdAt": "2023-07-30T02:16:28.787Z",
+          "modifiedAt": "2024-03-07T08:29:47.224Z"
+        }
+      },
+      "NotificationResponseItem": {
+        "description": "A notification formatted for `GET /notifications` (adds `userFullName`).",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PaymentNotificationResponseItem"
+          },
+          {
+            "$ref": "#/components/schemas/LikeNotificationResponseItem"
+          },
+          {
+            "$ref": "#/components/schemas/CommentNotificationResponseItem"
+          }
+        ],
+        "example": {
+          "userFullName": "Kristian Bradtke",
+          "id": "8NnQy36xaMtB",
+          "uuid": "f65dc9a6-de3b-4454-8fa7-b43f9270291c",
+          "userId": "uBmeaz5pX",
+          "likeId": "uMrgeJ4MvkFl",
+          "transactionId": "tHql3-JH3OSd",
+          "isRead": false,
+          "createdAt": "2023-10-18T08:33:08.846Z",
+          "modifiedAt": "2024-03-07T19:37:59.120Z"
+        }
+      },
+      "NotificationPayload": {
+        "type": "object",
+        "description": "One item for `POST /notifications/bulk`. Send `status` with type\n`payment`, `likeId` with `like`, `commentId` with `comment`.\n",
+        "required": [
+          "type",
+          "transactionId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "payment",
+              "like",
+              "comment"
+            ],
+            "example": "payment"
+          },
+          "transactionId": {
+            "$ref": "#/components/schemas/ShortId"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "received",
+              "incomplete"
+            ],
+            "example": "received"
+          },
+          "likeId": {
+            "type": "string",
+            "example": "x05ZpW5Rm5EP"
+          },
+          "commentId": {
+            "type": "string",
+            "example": "-mJe93t9ALEj"
+          }
+        },
+        "example": {
+          "type": "payment",
+          "transactionId": "5XZ9RwhG4qW9",
+          "status": "received"
+        }
+      },
+      "BulkNotificationsRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationPayload"
+            }
+          }
+        },
+        "example": {
+          "items": [
+            {
+              "type": "payment",
+              "transactionId": "5XZ9RwhG4qW9",
+              "status": "received"
+            }
+          ]
+        }
+      },
+      "UpdateNotificationRequest": {
+        "type": "object",
+        "required": [
+          "isRead"
+        ],
+        "description": "Any other fields sent are also merged into the notification (the UI sends `id` too).",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "8NnQy36xaMtB"
+          },
+          "isRead": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "example": {
+          "id": "8NnQy36xaMtB",
+          "isRead": true
+        }
+      },
+      "GraphQLRequest": {
+        "type": "object",
+        "description": "Standard GraphQL-over-HTTP request body.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "GraphQL document.",
+            "example": "query ListBankAccount { listBankAccount { id bankName isDeleted } }"
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true,
+            "example": {}
+          },
+          "operationName": {
+            "type": "string",
+            "nullable": true,
+            "example": "ListBankAccount"
+          }
+        },
+        "example": {
+          "operationName": "ListBankAccount",
+          "query": "query ListBankAccount { listBankAccount { id bankName isDeleted } }"
+        }
+      },
+      "GraphQLBankAccount": {
+        "type": "object",
+        "description": "The GraphQL `BankAccount` type (all fields nullable except `id`;\ntimestamps are plain strings - ISO for seeded rows, epoch milliseconds\nfor rows created after start-up).\n",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pgl34JtnfhX"
+          },
+          "uuid": {
+            "type": "string",
+            "nullable": true,
+            "example": "0939b3fe-02da-46f4-a3a6-f06f0fc49f75"
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true,
+            "example": "uBmeaz5pX"
+          },
+          "bankName": {
+            "type": "string",
+            "nullable": true,
+            "example": "Waters, King and O'Reilly Bank"
+          },
+          "accountNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "7774132232"
+          },
+          "routingNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "996645387"
+          },
+          "isDeleted": {
+            "type": "boolean",
+            "nullable": true,
+            "example": false
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2023-03-28T21:55:07.857Z"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2024-03-07T20:50:34.541Z"
+          }
+        },
+        "example": {
+          "id": "pgl34JtnfhX",
+          "uuid": "0939b3fe-02da-46f4-a3a6-f06f0fc49f75",
+          "userId": "uBmeaz5pX",
+          "bankName": "Waters, King and O'Reilly Bank",
+          "accountNumber": "7774132232",
+          "routingNumber": "996645387",
+          "isDeleted": false,
+          "createdAt": "2023-03-28T21:55:07.857Z",
+          "modifiedAt": "2024-03-07T20:50:34.541Z"
+        }
+      },
+      "GraphQLError": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Cannot query field \"nope\" on type \"Query\"."
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "example": 1
+                },
+                "column": {
+                  "type": "integer",
+                  "example": 9
+                }
+              }
+            }
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "example": [
+              "listBankAccount"
+            ]
+          },
+          "extensions": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "example": {
+          "message": "TypeError: Cannot read properties of undefined (reading 'id')",
+          "locations": [
+            {
+              "line": 1,
+              "column": 25
+            }
+          ],
+          "path": [
+            "listBankAccount"
+          ]
+        }
+      },
+      "GraphQLResponse": {
+        "type": "object",
+        "description": "GraphQL response envelope. `data` holds one key per root field you\nselected, e.g. `{\"listBankAccount\": [GraphQLBankAccount]}`,\n`{\"createBankAccount\": GraphQLBankAccount}` or\n`{\"deleteBankAccount\": true}`. `errors` is present when something\nfailed (possibly alongside partial `data`).\n",
+        "properties": {
+          "data": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "listBankAccount": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "$ref": "#/components/schemas/GraphQLBankAccount"
+                }
+              },
+              "createBankAccount": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GraphQLBankAccount"
+                  },
+                  {
+                    "$ref": "#/components/schemas/NullValue"
+                  }
+                ]
+              },
+              "deleteBankAccount": {
+                "type": "boolean",
+                "nullable": true
+              }
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GraphQLError"
+            }
+          }
+        },
+        "example": {
+          "data": {
+            "listBankAccount": [
+              {
+                "id": "pgl34JtnfhX",
+                "bankName": "Waters, King and O'Reilly Bank",
+                "isDeleted": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
