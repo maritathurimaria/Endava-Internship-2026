@@ -20,6 +20,7 @@ rewrite past rows — add a new one.
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-10-16 | 1.0.0 baseline | — | — | — | 55 API + 59 UI (per viewport) | 0 % | — | L-001…L-006 | Initial release |
 | 2026-10-20 | Week through 2026-10-20 | G-01, KI-01 report, G-11, A11Y-02, empty bank state, Bob/Alice E2E, ui-tablet | Typechecks ✅; Bob E2E run ❌ blocked | n/a | 3 focused tests + ui-tablet project | not measured | 1 patch-context correction | none; reused L-008 | G-01 expected failure; bank empty state passed desktop/mobile; tablet last-run passed but reporter count unavailable; Bob E2E unverified; usage counters n/a |
+| 2026-10-22 | Weekly follow-up | Review debugger recommendation; refresh EP-001 | Retro ✅; no tests run this follow-up | n/a | 0 | n/a | 0 | none; reused L-008 | `npm.cmd --prefix playwright run test:e2e` remains unverified; journal and usage counters unavailable |
 
 ## Evolution outcomes
 <!-- One row per applied proposal; revisit after ~3 sessions to fill "Observed effect". -->
