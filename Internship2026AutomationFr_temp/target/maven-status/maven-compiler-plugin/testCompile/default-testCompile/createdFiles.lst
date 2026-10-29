@@ -1,0 +1,9 @@
+ui\tests\HomePageTest.class
+ui\tests\LoginTest.class
+ui\tests\TransactionTest.class
+ui\base\TestResultWatcher.class
+ui\tests\NegativeLoginTest.class
+ui\pages\NewTransactionPage.class
+ui\pages\HomePage.class
+ui\base\BaseTest.class
+ui\pages\LoginPage.class
